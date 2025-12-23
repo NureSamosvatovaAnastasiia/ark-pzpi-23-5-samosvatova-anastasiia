@@ -638,3 +638,16 @@ POST /greenhouses/crops
 PUT /greenhouses/crops/{cropId}
 Редагування параметрів існуючої культури.
 
+
+
+2
+
+
+
+
+
+
+
+
+
+
