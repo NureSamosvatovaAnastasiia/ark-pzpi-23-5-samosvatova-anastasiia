@@ -1,0 +1,640 @@
+﻿МІНІСТЕРСТВО ОСВІТИ І НАУКИ УКРАЇНИ
+ХАРКІВСЬКИЙ НАЦІОНАЛЬНИЙ УНІВЕРСИТЕТ РАДІОЕЛЕКТРОНІКИ
+
+
+КАФЕДРА ПРОГРАМНОЇ ІНЖЕНЕРІЇ
+
+
+
+
+Звіт
+з лабораторної роботи № 3 з дисципліни
+Аналіз та рефакторинг коду
+
+
+
+
+
+Виконала:                                                                Перевірив:
+ст. гр. ПЗПІ-23-5                				ст. викладач кафедри ПІ
+Самосватова Анастасія Русланівна 			Сокорчук Ігор Петрович
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Харків 2025
+
+
+1 ІСТОРІЯ ЗМІН
+      №      ДатаВерсія звіту      Опис змін та виправлень      1      22.12.2025      0.1      Початкова версія
+
+      
+
+
+
+
+2 ЗАВДАННЯ
+
+1. Розробити бізнес логіку серверної частини програмної системи.
+2. Розробити функції адміністрування серверної частини програмної системи.
+3. Створити програмну реалізацію бізнес логіки та функцій адміністрування серверної частини.
+4. Перевірити роботу серверної частини системи.
+5. Завантажити або оновити (при потребі) створений програмний код у GitHub репозиторій для лабораторних робіт у гілку репозиторію main.
+6. Створити відеозапис демонстрації описаної у розділі 3.1 Vision & Scope функціональності серверної частини та завантажити цей відеозапис у свій канал на YouTube для облікового запису в домені @nure.ua.  При завантаженні відеозапису потрібно обовʼязково встановити у налаштуваннях для цього відео українську мову як мову відео та мову субтитрів до відео.
+7. Створити хронологічний опис (хвилина:секунда) демонстрації та додати цей опис до опису відео.
+8. Створити звіт до лабораторної роботи.
+9. Експортувати створений звіт у формат PDF та завантажити його на платформу dl.nure.ua.
+10. Експортувати увесь створений звіт у простий текстовий файл з кодуванням UTF-8 та записати цей файл у GitHub репозиторій для лабораторних робіт з вказаним у цих методичних вказівках іменем файла та директорії.
+
+
+3 ОПИС ВИКОНАНОЇ РОБОТИ
+
+	
+     3.1 Адміністрування та глобальний каталог агрокультур
+Було реалізовано модуль адміністрування, який дозволяє керувати користувачами, теплицями та базою знань агрокультур. Адміністратор має можливість переглядати список усіх зареєстрованих теплиць, їхніх власників та статус активності, що дозволяє здійснювати моніторинг цілісності системи. Ключовою особливістю є керування глобальним каталогом культур. Агроном створює шаблони налаштувань для різних рослин (наприклад, «Томати», «Огірки»), задаючи ідеальні діапазони температури, вологості та освітлення. Для первірки ролі використовується наступний код (рядок 1-14)
+1. const adminOnly = (req, res, next) => {
+2.     if (req.user && req.user.role === 'admin') {
+3.         next();
+4.     } else {
+5.         res.status(403).json({ error: 'Access denied: Admins only' });
+6.     }
+7. };
+8. const agronomusOnly = (req, res, next) => {
+9.     if (req.user && (req.user.role === 'admin' || req.user.role === 'agronom')) {
+10.         next();
+11.     } else {
+12.         res.status(403).json({ error: 'Access denied: Agrono, only' });
+13.     }
+14. };
+
+     Користувачі можуть застосовувати ці пресети до своїх теплиць, що спрощує налаштування системи. Реалізація представлена на рядках 1-22
+1. async getAllGreenhouses() {
+2.         return await db.select({
+3.             id: greenhouses.id,
+4.             name: greenhouses.name,
+5.             location: greenhouses.location,
+6.             owner: users.username,
+7.             ownerEmail: users.email,
+8.             createdAt: greenhouses.createdAt
+9.         })
+10.         .from(greenhouses)
+11.         .leftJoin(users, eq(greenhouses.ownerId, users.id));
+12.     }
+13. const createCrop = async (req, res, next) => {
+14.     try {
+15.         const newCrop = await GreenhouseRepo.createCrop(req.body);
+16.         res.status(201).json(newCrop);
+17.     } catch (e) { next(e); }
+18. };
+19.  async createCrop(data) {
+20.     const result = await db.insert(crops).values(data).returning();
+21.     return result[0];
+22.   }
+
+3.2 Інтелектуальна автоматизація мікроклімату
+     Для забезпечення оптимальних умов вирощування було розроблено сервіс автоматизації AutomationService (див. дод. В), який працює за принципом зворотного зв'язку. Система не просто реагує на порогові значення, а використовує адаптивні алгоритми.
+     Для керування освітленням реалізовано алгоритм компенсації сонячного світла за формулою:
+L artificial = L target – L natural
+де:
+• L target – цільовий рівень освітленості для культури;
+• L natural– поточний рівень природного світла від сенсора.
+   
+     При цьому враховуються циркадні ритми рослин: якщо поточний час виходить за межі світлового дня (наприклад, 20:00–06:00), система примусово вимикає освітлення для забезпечення періоду спокою. Для поливу реалізовано розрахунок необхідного об’єму води на основі дефіциту вологості та площі теплиці:
+V water = H target – H current * S area* K crop
+     де K crop – коефіцієнт вологоємності культури. 
+     Для терморегуляції розраховується необхідна теплова потужність для нагріву об'єму повітря теплиці за заданий час з урахуванням тепловтрат
+     Для підвищення стабільності системи та запобігання «дрібезгу» виконавчих механізмів (частих вмикань/вимикань) було впроваджено аналіз трендів зміни показників (рядок 1-22).
+1. async calculateTrend(sensorType, greenhouseId) {
+2.       const sensor = await this.findSensor(greenhouseId, sensorType);
+3.       if (!sensor) return 0;
+4. 
+5.       const history = await db.query.readings.findMany({
+6.           where: eq(readings.sensorId, sensor.id),
+7.           orderBy: desc(readings.timestamp),
+8.           limit: 2
+9.       });
+10. 
+11.       if (history.length < 2) return 0; 
+12. 
+13.       const latest = history[0]; 
+14.       const previous = history[1]; 
+15. 
+16.       const timeDiffSeconds = (latest.timestamp - previous.timestamp) / 1000;
+17.       if (timeDiffSeconds === 0) return 0;
+18. 
+19.       const valueDiff = parseFloat(latest.value) - parseFloat(previous.value);
+20. 
+21.       return valueDiff / timeDiffSeconds;
+22.   }
+
+     Це критично важливо для всіх систем: якщо датчик пеердає показник нижче норми, але тренд позитивний (Trend > 0), це означає, що показник стабілізується і немає потреби підсилювати дію актуаторів. У такому випадку система блокує повторне ввімкнення, запобігаючи занадто стрімкого росту тренду.
+     
+3.3 Логування подій
+     Розроблено підсистему збору телеметрії та логування дій автоматики. Кожне автоматичне або ручне втручання (наприклад, увімкнення обігрівача) фіксується в базі даних із зазначенням причини (наприклад, AUTO:LowTemperature або USER:ManualOverride). Це дозволяє користувачеві аналізувати ефективність роботи системи. Взаємодія компонентів під час обробки телеметрії представлена на діаграмі огляду взаємодії (див. дод. Б).
+
+
+
+4 ВИСНОВКИ
+     
+     У ході виконання роботи було розроблено ключові функції адміністрування та інтелектуальної автоматизації серверної частини IoT-системи для керування теплицями. Було реалізовано управління користувачами та теплицями, а також розроблено функціонал глобального каталогу агрокультур. Це дозволяє адміністратору створювати еталонні налаштування мікроклімату, а користувачам - застосовувати їх для швидкого налаштування системи. Також реалізовано механізми обслуговування системи, зокрема очищення застарілих логів телеметрії.
+     Ключовим елементом бізнес-логіки стала реалізація алгоритмів автоматизації на основі фізико-математичних моделей. Замість лінійної логіки, система використовує термодинамічні розрахунки для визначення необхідної потужності обігріву та формули абсолютної вологості для точного дозування зволоження. Впроваджено аналіз трендів зміни показників у реальному часі, що дозволяє системі враховувати інерційність ґрунту (поглинання вологи) та запобігати перезволоженню або перегріву.
+
+
+
+
+
+
+ДОДАТОК А
+
+Відеозапис
+
+Відеозапис презентації результатів лабораторної роботи: https://youtu.be/vmV8BPRyD9Y
+
+Хронологічний опис відеозапису:
+00:00 - представлення та завдання на лабораторну работу.
+00:19 - розглядаємо теплицю як активний бізнес проект.  Вступ
+00:39 - головна точка входу, цифровий двійник теплиці
+01:04 - підключення до брокера
+01:53 - основний цикл роботи пристрою
+02:49 - контроль якості даних
+03:35 - фіксація значень в офлаайн режимі
+04:18 - серверний бік системи
+04:50 - трансформація iot даних у бізнес дані
+05:48 - перевірка роботи
+
+
+
+
+ДОДАТОК Б
+
+Графічні матеріали
+
+
+Рисунок 1 — Діаграма активності аналізу параметрів датчика
+
+Рисунок 2 — Діаграма взаємодії при додаванні культури
+
+
+Рисунок 3 — Діаграма взаємодії при перегляді адміністратором статистики
+
+Рисунок 4 — Діаграма взаємодії при ручному увімкненні актуатора
+
+
+
+
+
+
+
+
+
+
+
+ДОДАТОК В
+
+Логіка сервісу AutomationService
+
+1. const db = require('../config/db');
+2. const { greenhouses, crops, sensors, actuators, readings } = require('../db/schema');
+3. const { eq, and, desc } = require('drizzle-orm');
+4. const IoTRepo = require('../repositories/iotRepository');
+5. const NotificationRepo = require('../repositories/notificationRepository');
+6. 
+7. const AIR_HEAT_CAPACITY = 1006; // Дж/(кг*°C)
+8. const AIR_DENSITY = 1.225; // кг/м³
+9. 
+10. const PREDICTION_TIME_SECONDS = 300; 
+11. 
+12. class AutomationService {
+13.   
+14.   async processTelemetry(greenhouseId, sensorType, value, timestamp = new Date()) {
+15.      console.log(`\n[AUTO] GH:${greenhouseId} | ${sensorType}: ${value} ${timestamp}`);
+16. 
+17.     try {
+18.         const greenhouse = await db.query.greenhouses.findFirst({
+19.             where: eq(greenhouses.id, greenhouseId),
+20.             with: { activeCrop: true }
+21.         });
+22. 
+23.         if (!greenhouse || !greenhouse.activeCrop) return;
+24.         const crop = greenhouse.activeCrop;
+25. 
+26.         const trend = await this.calculateTrend(sensorType, greenhouseId, value);
+27.         const virtualTime = new Date(timestamp);
+28. 
+29.         if (Math.abs(trend) > 0.001) {
+30.              console.log(`[TREND] ${sensorType}: ${trend > 0 ? '+' : ''}${trend.toFixed(4)} / sec`);
+31.         }
+32. 
+33.         switch (sensorType) {
+34.             case 'soil_moisture':
+35.                 await this.handleSoilMoisture(greenhouse, crop, value, trend);
+36.                 break;
+37.             case 'temperature':
+38.                 await this.handleTemperature(greenhouse, crop, value, trend);
+39.                 break;
+40.             case 'humidity':
+41.                 await this.handleAirHumidity(greenhouse, crop, value, trend);
+42.                 break;
+43.             case 'light':
+44.                 await this.handleLighting(greenhouse, crop, value, virtualTime);
+45.                 break;
+46.         }
+47.     } catch (err) {
+48.         console.error("[AUTO-CRASH]", err);
+49.     }
+50.   }
+51. 
+52.   
+53.   async calculateTrend(sensorType, greenhouseId) {
+54.       const sensor = await this.findSensor(greenhouseId, sensorType);
+55.       if (!sensor) return 0;
+56. 
+57.       const history = await db.query.readings.findMany({
+58.           where: eq(readings.sensorId, sensor.id),
+59.           orderBy: desc(readings.timestamp),
+60.           limit: 2
+61.       });
+62. 
+63.       if (history.length < 2) return 0; 
+64. 
+65.       const latest = history[0]; 
+66.       const previous = history[1]; 
+67. 
+68.       const timeDiffSeconds = (latest.timestamp - previous.timestamp) / 1000;
+69.       if (timeDiffSeconds === 0) return 0;
+70. 
+71.       const valueDiff = parseFloat(latest.value) - parseFloat(previous.value);
+72. 
+73.       return valueDiff / timeDiffSeconds;
+74.   }
+75. 
+76.   async checkAndAlert(ghId, message, severity, keyPhrase) {
+77.       try {
+78.           const alreadySent = await NotificationRepo.hasRecentNotification(ghId, keyPhrase, 30, severity);
+79.           
+80.           if (!alreadySent) {
+81.               console.log(`[ALERT] Creating notification: ${message}`);
+82.               await NotificationRepo.create(ghId, message, severity);
+83.           }
+84.       } catch (e) {
+85.           console.error("Notification Error:", e.message);
+86.       }
+87.   }
+88. 
+89.   async checkAndAlertRecovery(ghId, message, keyPhrase) {
+90.       try {
+91.           const lastSeverity = await NotificationRepo.getLastSeverity(ghId, keyPhrase);
+92.           
+93.           if (lastSeverity === 'CRITICAL' || lastSeverity === 'WARNING') {
+94.               
+95.               const alreadyResolved = await NotificationRepo.hasRecentNotification(ghId, 'Resolved', 10);
+96.               
+97.               if (!alreadyResolved) {
+98.                   console.log(`[RECOVERY] Creating notification: ${message}`);
+99.                   await NotificationRepo.create(ghId, `Resolved: ${message}`, 'INFO');
+100.               }
+101.           }
+102.       } catch (e) {
+103.           console.error("Recovery Alert Error:", e.message);
+104.       }
+105.   }
+106. 
+107.   calculateMaxWaterInAir(temp) {
+108.       const es = 6.112 * Math.exp((17.67 * temp) / (temp + 243.5));
+109.       return (es * 216.7) / (temp + 273.15);
+110.   }
+111. 
+112.   
+113.   async handleSoilMoisture(greenhouse, crop, currentVal, trend) {
+114.     const min = parseFloat(crop.idealSoilMoistureMin);
+115.     const max = parseFloat(crop.idealSoilMoistureMax);
+116.     const target = (min + max) / 2;
+117.     const keyPhrase = 'Soil moisture';
+118. 
+119.     const predictedVal = currentVal + (trend * 300);
+120. 
+121.      if (currentVal < 30) {
+122.         await this.checkAndAlert(greenhouse.id, `CRITICAL: Soil moisture extremely low (${currentVal}%)!`, 'CRITICAL', keyPhrase);
+123.     } else if (currentVal < min - 5) {
+124.         await this.checkAndAlert(greenhouse.id, `Warning: Soil moisture is low (${currentVal}%).`, 'WARNING', keyPhrase);
+125.     } else if (currentVal >= min && currentVal <= max) {
+126.         await this.checkAndAlertRecovery(greenhouse.id, `Soil moisture returned to optimal range.`, keyPhrase);
+127.     }
+128. 
+129.     if (trend > 0.05 && currentVal > (min - 2)) {
+130.         console.log(`[SMART] Soil rising fast (+${trend.toFixed(3)}/s). Skipping pump to prevent overshoot.`);
+131.         await this.toggleActuator(greenhouse.id, 'pump', false, 'AUTO:InertiaStop');
+132.         return;
+133.     }
+134. 
+135.     if (currentVal >= target) { 
+136.         await this.toggleActuator(greenhouse.id, 'pump', false, 'AUTO:TargetReached');
+137.         return;
+138.     }
+139.     if (currentVal > min) return; 
+140. 
+141.     const deficit = max - currentVal; 
+142.     const area = parseFloat(greenhouse.areaSqMeters);
+143.     const waterFactor = crop.waterNeedFactor; 
+144.     const waterVolumeMl = deficit * area * waterFactor; 
+145. 
+146.     const pump = await this.findActuator(greenhouse.id, 'pump');
+147.     if (!pump) return;
+148. 
+149.     if (!pump.currentState && waterVolumeMl > 50) {
+150.         const flowRate = parseFloat(pump.capacity) || 50; 
+151.         const duration = waterVolumeMl / flowRate;
+152. 
+153.         console.log(`[ACTION] Pump ON for ${duration.toFixed(1)}s (Trend: ${trend.toFixed(4)})`);
+154.         await IoTRepo.updateActuatorState(pump.id, true, 100, `AUTO:Watering ${waterVolumeMl.toFixed(0)}ml`);
+155.         
+156.         setTimeout(async () => {
+157.             await IoTRepo.updateActuatorState(pump.id, false, 0, 'AUTO:CycleEnd');
+158.         }, duration * 1000);
+159.     }
+160.   }
+161. 
+162.   async handleTemperature(greenhouse, crop, currentVal, trend) {
+163.       const min = parseFloat(crop.idealTempMin);
+164.       const max = parseFloat(crop.idealTempMax);
+165.       const keyPhrase = 'Temperature';
+166.       const target = (min + max) / 2;
+167.    
+168.       const predictedVal = currentVal + (trend * 60);
+169.       
+170.       const area = parseFloat(greenhouse.areaSqMeters);
+171.       const height = parseFloat(greenhouse.heightMeters) || 3.0;
+172.       const volume = area * height; 
+173.       const airMassKg = volume * AIR_DENSITY;
+174. 
+175.     if (currentVal < (min - 5)) {
+176.             await this.checkAndAlert(greenhouse.id, `CRITICAL: Freezing risk! Temp: ${currentVal}°C`, 'CRITICAL', keyPhrase);
+177.         } else if (currentVal < (min - 2)) {
+178.             await this.checkAndAlert(greenhouse.id, `Warning: Low temperature (${currentVal}°C).`, 'WARNING', keyPhrase);
+179.         } else if (currentVal > (max + 5)) {
+180.             await this.checkAndAlert(greenhouse.id, `CRITICAL: Overheating! Temp: ${currentVal}°C`, 'CRITICAL', keyPhrase);
+181.         } else if (currentVal > (max + 2)) {
+182.             await this.checkAndAlert(greenhouse.id, `Warning: High temperature (${currentVal}°C).`, 'WARNING', keyPhrase);
+183.         } else if (currentVal >= min && currentVal <= max) {
+184.             await this.checkAndAlertRecovery(greenhouse.id, `Temperature normalized (${currentVal}°C).`, keyPhrase);
+185.         }
+186. 
+187.       const heater = await this.findActuator(greenhouse.id, 'heater');
+188.       const fan = await this.findActuator(greenhouse.id, 'fan');
+189.       const vent = await this.findActuator(greenhouse.id, 'vent');
+190. 
+191.       if (currentVal < min || (currentVal < target && predictedVal < target)) {
+192.           const deltaT = target - currentVal; 
+193.           
+194.           if (heater) {
+195.               const heaterCapacityW = parseFloat(heater.capacity) || 2000;
+196.               let powerNeededW = (AIR_HEAT_CAPACITY * airMassKg * deltaT) / 600; 
+197.               
+198.               if (trend > 0) {
+199.                   const trendBrake = (AIR_HEAT_CAPACITY * airMassKg * (trend * 300)) / 600;
+200.                   powerNeededW -= trendBrake;
+201.               }
+202.               
+203.               let percent = (powerNeededW / heaterCapacityW) * 100;
+204.               percent = Math.min(100, Math.max(0, percent));
+205. 
+206.               if (percent > 5) {
+207.                   if (currentVal > (target - 1) && trend > 0.05) {
+208.                        await this.setActuator(heater, false, 0, 'AUTO:Coast(Inertia)');
+209.                   } else {
+210.                        await this.setActuator(heater, true, percent, `AUTO:Heat(Target ${target})`);
+211.                   }
+212.               } else {
+213.                   await this.setActuator(heater, false, 0, 'AUTO:Coast');
+214.               }
+215.           }
+216.           if (fan) await this.setActuator(fan, false, 0, 'AUTO:SaveHeat');
+217.           if (vent) await this.setActuator(vent, false, 0, 'AUTO:SaveHeat');
+218.       } 
+219.    
+220.       else if (currentVal > target) {
+221.           const deltaT = currentVal - target;
+222. 
+223.           if (fan) {
+224. 
+225.               if (predictedVal > max || currentVal > max) {
+226.                   const fanCapacityM3H = parseFloat(fan.capacity) || 5000;
+227.       
+228.                   let requiredFlow = volume * (10 + deltaT * 10); 
+229.     
+230. 
+231.                   if (trend > 0) requiredFlow += (volume * 200 * trend); 
+232.               
+233.                   else requiredFlow += (volume * 500 * trend); 
+234.     
+235.                   let percent = (requiredFlow / fanCapacityM3H) * 100;
+236.                   percent = Math.min(100, Math.max(0, percent));
+237.     
+238.                   if (percent > 10) await this.setActuator(fan, true, percent, `AUTO:Cool(Target ${target})`);
+239.                   else await this.setActuator(fan, false, 0, 'AUTO:Coast');
+240.               } else {
+241.                   await this.setActuator(fan, false, 0, 'AUTO:ComfortZone');
+242.               }
+243.           }
+244.           
+245.           if (vent) {
+246.                if (predictedVal > max || currentVal > max) {
+247.                    let angle = (deltaT * 15) + (trend * 500);
+248.                    angle = Math.min(100, Math.max(0, angle));
+249.                    if (angle > 5) await this.setActuator(vent, true, angle, `AUTO:Vent`);
+250.                    else await this.setActuator(vent, false, 0, 'AUTO:Close');
+251.                } else {
+252.                    await this.setActuator(vent, false, 0, 'AUTO:ComfortZone');
+253.                }
+254.           }
+255.           if (heater) await this.setActuator(heater, false, 0, 'AUTO:StopHeat');
+256.       }
+257.       else {
+258.           if (heater) await this.setActuator(heater, false, 0, 'AUTO:Optimal');
+259.           if (fan) await this.setActuator(fan, false, 0, 'AUTO:Optimal');
+260.           if (vent) await this.setActuator(vent, false, 0, 'AUTO:Optimal');
+261.       }
+262.   }
+263. 
+264.  
+265.   async handleAirHumidity(greenhouse, crop, currentVal, trend) {
+266.       const min = parseFloat(crop.idealAirHumidityMin);
+267.       const max = parseFloat(crop.idealAirHumidityMax);
+268.       const keyPhrase = 'Humidity';
+269. 
+270.       const predictedVal = currentVal + (trend * PREDICTION_TIME_SECONDS);
+271.       const target = (min + max) / 2;
+272.       const humidifier = await this.findActuator(greenhouse.id, 'humidifier');
+273.       const vent = await this.findActuator(greenhouse.id, 'vent');
+274. 
+275.       if (currentVal > (max + 5)) {
+276.            await this.checkAndAlert(greenhouse.id, `Warning: High humidity (${currentVal}%). Risk of mold!`, 'WARNING', keyPhrase);
+277.       } else if (currentVal < (min - 5)) {
+278.            await this.checkAndAlert(greenhouse.id, `Warning: Low humidity (${currentVal}%). Risk of drying!`, 'WARNING', keyPhrase);
+279.       } else if (currentVal >= min && currentVal <= max) {
+280.            await this.checkAndAlertRecovery(greenhouse.id, `Humidity normalized.`, keyPhrase);
+281.       }
+282.       if (predictedVal < min) {
+283.           if (humidifier) {
+284.         
+285.               const maxWaterGM3 = this.calculateMaxWaterInAir(currentTemp);
+286. 
+287.               const deficitPercent = target - currentVal; 
+288.               const deficitGM3 = maxWaterGM3 * (deficitPercent / 100);
+289. 
+290.               const volume = parseFloat(greenhouse.areaSqMeters) * parseFloat(greenhouse.heightMeters || 3);
+291.               const totalWaterNeededMl = deficitGM3 * volume; 
+292. 
+293.               const capacityMlH = parseFloat(humidifier.capacity) || 500; 
+294.               
+295.               let power = (totalWaterNeededMl / capacityMlH) * 100 * 2; 
+296.           
+297.               power -= (trend * 1000); 
+298. 
+299.               power = Math.min(100, Math.max(10, power));
+300. 
+301.               await this.setActuator(humidifier, true, power, `AUTO:Humidify(Need ${totalWaterNeededMl.toFixed(0)}ml)`);
+302.           }
+303.       } 
+304. 
+305.       else if (predictedVal > max) {
+306.           if (vent) {
+307.               const excess = currentVal - target;
+308.               let power = (excess * 5) + (trend * 1000);
+309.               power = Math.min(100, Math.max(10, power));
+310.               
+311.              await this.setActuator(vent, true, power, `AUTO:Dehumidify(Target ${target})`);
+312.           }
+313.           if (humidifier) await this.setActuator(humidifier, false, 0, 'AUTO:StopHumidify');
+314.       }
+315.       else {
+316.           if (humidifier) await this.setActuator(humidifier, false, 0, 'AUTO:Optimal');
+317.       }
+318.   }
+319. 
+320.  
+321.   async handleLighting(greenhouse, crop, currentLux, currentTime = new Date()) {
+322.       const targetLux = crop.idealLightLevel;
+323.       const dayLength = crop.requiredDayHours;
+324.       const area = parseFloat(greenhouse.areaSqMeters);
+325.       const keyPhrase = 'Light';
+326.     
+327.      const currentHour = currentTime.getHours();
+328.       const isDayTime = currentHour >= 6 && currentHour < (6 + dayLength);
+329. 
+330.       if (isDayTime) {
+331.           if (currentLux  < (targetLux * 0.5)) {
+332.               await this.checkAndAlert(greenhouse.id, `CRITICAL: Low light (${currentLux} lux). Growth stalled!`, 'CRITICAL', keyPhrase);
+333.           } else if (currentLux  < (targetLux * 0.8)) {
+334.               await this.checkAndAlert(greenhouse.id, `Warning: Low light level (${currentLux} lux).`, 'WARNING', keyPhrase);
+335.           } else if (currentLux  >= targetLux) {
+336.               await this.checkAndAlertRecovery(greenhouse.id, `Light level optimal.`, keyPhrase);
+337.           }
+338.       }
+339.       const growLight = await this.findActuator(greenhouse.id, 'grow_light');
+340.       if (!growLight) return;
+341. 
+342.       if (isDayTime) {
+343.          
+344.           const maxLampLux = (parseFloat(growLight.capacity) || 20000) / area;
+345.           const currentLampContribution = growLight.currentState 
+346.               ? (maxLampLux * (parseFloat(growLight.currentValue) / 100)) 
+347.               : 0;
+348. 
+349.           const naturalLux = Math.max(0, currentLux - currentLampContribution);
+350.           
+351.           if (naturalLux < targetLux) {
+352.               const neededArtificial = targetLux - naturalLux;
+353.               let percent = (neededArtificial / maxLampLux) * 100;
+354.               percent = Math.min(100, Math.max(0, percent));
+355. 
+356.               await this.setActuator(growLight, true, percent, `AUTO:SmartLight`);
+357.           } else {
+358.               await this.setActuator(growLight, false, 0, 'AUTO:SunEnough');
+359.           }
+360.       } else {
+361.           await this.setActuator(growLight, false, 0, 'AUTO:NightMode');
+362.       }
+363.   }
+364. 
+365.   async findActuator(ghId, type) {
+366.       return await db.query.actuators.findFirst({
+367.           where: and(eq(actuators.greenhouseId, ghId), eq(actuators.type, type))
+368.       });
+369.   }
+370.   async findSensor(ghId, type) {
+371.       return await db.query.sensors.findFirst({
+372.           where: and(eq(sensors.greenhouseId, ghId), eq(sensors.type, type))
+373.       });
+374.   }
+375.   async getLastReading(sensorId) {
+376.       return await db.query.readings.findFirst({
+377.           where: eq(readings.sensorId, sensorId),
+378.           orderBy: desc(readings.timestamp)
+379.       });
+380.   }
+381.   async toggleActuator(ghId, type, state, reason) {
+382.       const act = await this.findActuator(ghId, type);
+383.       if (act && act.currentState !== state) {
+384.           await IoTRepo.updateActuatorState(act.id, state, state ? 100 : 0, reason);
+385.       }
+386.   }
+387.   async setActuator(actuator, state, value, reason) {
+388.       const currentVal = parseFloat(actuator.currentValue || 0);
+389.       const diff = Math.abs(currentVal - value);
+390.     
+391.       if (actuator.currentState !== state || (state === true && diff > 5)) {
+392.           console.log(` [SMART-SET] ${actuator.type}: ${value.toFixed(1)}% (was ${currentVal.toFixed(1)}%)`);
+393.           await IoTRepo.updateActuatorState(actuator.id, state, value, reason);
+394.       }
+395.   }
+396. }
+397. 
+398. module.exports = new AutomationService();
+
+
+ДОДАТОК Г
+     Специфікація:
+
+Ендпоінти Адміністратора 
+Ці маршрути призначені для глобального керування системою, моніторингу та управління користувачами.
+1. GET /admin/dashboard
+   Отримання глобальної статистики системи (кількість користувачів, теплиць, сенсорів).
+2. GET /admin/users
+   Отримання списку всіх зареєстрованих користувачів.
+3. DELETE /admin/users/{userId}
+Опис: Видалення користувача із системи.
+4. PATCH /admin/users/{userId}/role
+   Зміна ролі користувача (наприклад, підвищення до admin або пониження до user).
+5. GET /admin/logs
+   Перегляд глобальних логів системи (останні 100 дій автоматики або користувачів у всій системі).
+6. GET /admin/greenhouses
+   Отримання списку всіх теплиць у системі (незалежно від власника) для моніторингу.
+Ендпоінти Агронома 
+POST /greenhouses/crops
+Створення нової агрокультури (Plant profile).
+Ключові параметри: idealTempMin, idealTempMax, idealSoilMoistureMin, idealLightLevel, waterNeedFactor тощо.
+PUT /greenhouses/crops/{cropId}
+Редагування параметрів існуючої культури.
+
