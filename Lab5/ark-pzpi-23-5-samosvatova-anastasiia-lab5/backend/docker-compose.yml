@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # База данных
   db:
     image: postgres:15-alpine
     container_name: agro_db
@@ -19,8 +18,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  # Миграции (накатываем таблицы при старте)
+      
   db_migrate:
     build: .
     container_name: db_migrate
@@ -31,7 +29,6 @@ services:
       db:
         condition: service_healthy
 
-  # API Сервер
   api:
     build: .
     container_name: agro_api
@@ -40,11 +37,12 @@ services:
       db_migrate:
         condition: service_completed_successfully
     ports:
-      - "3000:3000" # <-- Важно: открываем порт для внешнего мира (и для второго проекта)
+      - "3000:3000" 
     environment:
       DATABASE_URL: postgres://myuser:mypassword@db:5432/agro_db
       PORT: 3000
       JWT_SECRET: super_secret_key_for_demo
 
 volumes:
+
   postgres_data:
