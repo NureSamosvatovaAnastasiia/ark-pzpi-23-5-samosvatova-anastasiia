@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+
+  db:
+    image: postgres:15-alpine
+    container_name: agro_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - agro_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d agro_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  db_migrate:
+    image: somevt/agrosense-api:latest 
+    container_name: db_migrate
+    command: npm run db:push 
+    environment:
+       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: somevt/agrosense-api:latest
+    container_name: agro_api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      PORT: 3000
+      JWT_SECRET: demo_secret
+    depends_on:
+      db_migrate:
+        condition: service_completed_successfully
+
+volumes:
+  agro_db_data:

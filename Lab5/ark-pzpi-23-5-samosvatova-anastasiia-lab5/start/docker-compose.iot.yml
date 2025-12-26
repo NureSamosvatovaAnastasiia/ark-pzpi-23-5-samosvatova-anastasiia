@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+ 
+  mosquitto:
+    image: somevt/agrosense-mqtt:latest
+    container_name: mqtt_broker
+    restart: always
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+
+  iot_bridge:
+    image: somevt/agrosense-bridge:latest
+    container_name: iot_bridge
+    restart: on-failure
+    depends_on:
+      - mosquitto
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway" 
+    environment:
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      
+      API_BASE_URL: http://host.docker.internal:3000/api/v1
+      
+      USER_EMAIL: ${USER_EMAIL}
+      USER_PASS: ${USER_PASS}
+      GREENHOUSE_ID: ${GREENHOUSE_ID}
+
+
+  iot_device:
+    image: somevt/agrosense-device:latest
+    container_name: iot_device
+    restart: always
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: 1883
+      GREENHOUSE_ID: ${GREENHOUSE_ID}
