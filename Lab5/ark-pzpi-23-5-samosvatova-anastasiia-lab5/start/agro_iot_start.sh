@@ -6,10 +6,10 @@ command -v docker-compose >/dev/null 2>&1 || { echo "Docker Compose is not insta
 echo "Docker and Docker Compose found."
 
 read -p "Enter USER EMAIL [anastasiia.samosvatova@nure.ua]: " USER_EMAIL
-USER_EMAIL=${USER_EMAIL:-anastasiia.samosvatova@nure.ua}
+USER_EMAIL=${USER_EMAIL:-someuser@example.ua}
 
 read -sp "Enter USER PASSWORD [string]: " USER_PASS
-USER_PASS=${USER_PASS:-string}
+USER_PASS=${USER_PASS:-pass}
 echo
 
 read -p "Enter GREENHOUSE_ID [c9f7ce01-459a-4e66-9870-f90ebfb18f1d]: " GREENHOUSE_ID
